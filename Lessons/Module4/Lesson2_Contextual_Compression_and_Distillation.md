@@ -35,9 +35,9 @@ The most common way to implement this is to add a "compression" step to your RAG
 **Diagram: RAG Pipeline with Compression**
 ```mermaid
 graph TD
-    A[User Query] --> B{1. Retriever};
+    A[User Query] -->B{1. Retriever};
     B --> C[Full Documents];
-    C --> D{2. Compressor};
+C --> D{2. Compressor};
     subgraph Compressor Step
         direction LR
         D_C[Full Document]
@@ -49,7 +49,7 @@ graph TD
     D_C --> D_LLM;
     D_Q --> D_LLM;
     D_LLM --> E[Compressed Snippets];
-    E --> F{3. Generator (Main LLM)};
+    E --> F{"3. Generator (Main LLM)"};
     A --> F;
     F --> G[Final Answer];
 ```
