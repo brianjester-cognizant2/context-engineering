@@ -37,7 +37,7 @@ The most common way to implement this is to add a "compression" step to your RAG
 graph TD
     A[User Query] -->B{1. Retriever};
     B --> C[Full Documents];
-C --> D{2. Compressor};
+    C --> D{2. Compressor};
     subgraph Compressor Step
         direction LR
         D_C[Full Document]
