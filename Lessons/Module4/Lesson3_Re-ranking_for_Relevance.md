@@ -11,7 +11,7 @@ By the end of this lesson, you will be able to:
 *   **Differentiate** between a bi-encoder (for retrieval) and a cross-encoder (for re-ranking).
 *   **Diagram** a RAG pipeline that includes a re-ranking step.
 *   **Apply** metadata filtering to a retrieved set of documents.
-*   **Describe** how contrastive training techniques like Focused Transformer (FoT) can improve retrieval quality.
+*   **Identify** the techniques that improve retrieval *before* re-ranking, and know where to spend effort first.
 
 ---
 
@@ -28,19 +28,21 @@ This is why we use a multi-stage process: use the fast bi-encoder to find the "h
 **Diagram: The Re-ranking Pipeline**
 ```mermaid
 graph TD
-    A[User Query] --> B{1. Retriever (Fast Bi-Encoder)};
-    B -- Top 50-100 Candidates --> C{2. Re-ranker (Accurate Cross-Encoder)};
+    accTitle: Re-ranking pipeline
+    accDescr: A user query goes to a fast bi-encoder retriever returning fifty to a hundred candidates. A cross-encoder re-ranker scores each candidate against the query, passing the top three to five documents to the main generator model.
+    A[User Query] --> B{"1. Retriever (Fast Bi-Encoder)"};
+    B -- Top 50-100 Candidates --> C{"2. Re-ranker (Accurate Cross-Encoder)"};
     subgraph Re-ranker Step
       direction LR
       C_D[One Document]
       C_Q[User Query]
-      C_LLM((Cross-Encoder)) -- Score --> C_S[Relevance Score]
+      C_LLM(("Cross-Encoder")) -- Score --> C_S[Relevance Score]
     end
     B --> C_D;
     A --> C_Q;
     C_D --> C_LLM;
     C_Q --> C_LLM
-    C -- Top 3-5 Docs --> D{3. Generator (Main LLM)};
+    C -- Top 3-5 Docs --> D{"3. Generator (Main LLM)"};
     A --> D;
     D --> E[Final Answer];
 ```
@@ -68,28 +70,36 @@ This is a powerful way to add business logic to your RAG pipeline, making the fi
 
 ---
 
-### **3. Emerging Technique: Improving the Embeddings Themselves**
+### **3. Improving Retrieval Before It Happens**
 
-Re-ranking and filtering help us select the best documents *after* they have been retrieved. But what if we could improve the quality of the initial retrieval itself? A new area of research focuses on improving the vector embeddings to make them less "distractible."
+Re-ranking and filtering fix the *ordering* of what you already retrieved. They can't recover a document the retriever never surfaced. Three techniques attack the problem earlier in the pipeline, and they compose with re-ranking rather than replacing it.
 
-**The Distraction Issue:**
-When you have a massive knowledge base, it's possible for the vector representations of two different concepts to be very similar, even if they aren't semantically related in a way that's useful for the query. This can cause the retriever to pull in irrelevant documents, creating noise.
+**A. Contextual retrieval (index time).**
+Covered in Module 3, Lesson 2: prepend a generated sentence situating each chunk in its source document before embedding. This fixes the orphaned-chunk failure — where the words that would have matched the query lived in the document title rather than the chunk. It is the highest-leverage of the three because it costs nothing per query.
 
-**Focused Transformer (FoT): A Contrastive Training Approach**
-*   **The Idea:** The **Focused Transformer (FoT)** is a technique that fine-tunes a model using an approach inspired by **contrastive training**.
-*   **How it Works:** During training, the model is explicitly taught to pull the embeddings of *truly relevant* documents closer to the query's embedding, while simultaneously pushing the embeddings of *irrelevant* or "distractor" documents further away.
-*   **The Result:** This creates a more distinct and well-structured embedding space. The model gets better at distinguishing between the "needle" and other pieces of "hay" that just look like needles, leading to a higher-quality set of documents in the very first retrieval step.
+**B. Query transformation (query time).**
+The user's phrasing is often a poor search query. Two cheap transformations help a lot:
 
-While re-ranking is a post-processing step to refine results, techniques like FoT are a pre-processing step to improve the fundamental quality of the vector space itself. A state-of-the-art pipeline might use both.
+*   **Query expansion / multi-query.** Generate 3–4 paraphrases of the question, retrieve for each, and fuse the results. Different phrasings surface different documents, and the union has substantially better recall than any single phrasing.
+*   **Hypothetical document embedding (HyDE).** Have a cheap model write a *hypothetical answer* to the question, then embed **that** and search with it. This works because of an asymmetry people often miss: a question and its answer are frequently *not* semantically close (`"why is my build slow?"` vs. `"incremental compilation is disabled when..."`), but a hypothetical answer and the real answer usually are.
+
+**C. Better retrievers (model level).**
+The embedding models themselves improved. Two developments worth knowing by name:
+
+*   **Late-interaction retrievers** (the ColBERT family) embed *per token* rather than per document, and score by matching tokens between query and document. They land between bi-encoders and cross-encoders on both accuracy and cost — more accurate than a single-vector bi-encoder, far cheaper than a full cross-encoder — at the price of a larger index.
+*   **Instruction-tuned embedding models** accept a task description alongside the text (`"Represent this passage for retrieval by support engineers debugging errors"`), producing embeddings tuned to your retrieval task rather than to generic similarity.
+
+> **Where to spend your effort, in order:** hybrid search → contextual retrieval → re-ranking → query transformation → a better embedding model. The first three are cheap, well-understood, and compose cleanly. Swapping embedding models means re-indexing your entire corpus, which is why it belongs last despite being the most tempting-sounding.
 
 ---
 
 ### **Key Takeaways**
 
-*   **Re-ranking** is an optional but powerful step that uses a slower, more accurate model (a **cross-encoder**) to re-order the initial results from your vector database.
-*   The standard RAG pipeline is: **Retrieve (fast) -> Re-rank (accurate) -> Generate.**
-*   You can also use **metadata filtering** after retrieval to narrow down results based on criteria like date or source, adding another layer of logic to your system.
-*   Emerging techniques like **Focused Transformer (FoT)** use contrastive training to improve the quality of the embeddings themselves, making the initial retrieval more robust to "distractor" documents.
+*   **Re-ranking** uses a slow, accurate **cross-encoder** to re-order the fast retriever's candidates. The standard pipeline is **retrieve broadly → re-rank accurately → generate**.
+*   Re-ranking is one of the highest return-per-effort changes available: it commonly buys a large accuracy gain for a modest latency cost, with **no re-indexing**.
+*   **Metadata filtering** applies business logic (recency, source, permissions) that relevance scores cannot express.
+*   Re-ranking cannot recover what was never retrieved. **Contextual retrieval, query transformation (multi-query, HyDE), and better retrievers** attack the problem earlier.
+*   Spend effort in this order: **hybrid search → contextual retrieval → re-ranking → query transformation → new embedding model.**
 
 ### **Hands-On Task: Design the Final Pipeline**
 
@@ -100,12 +110,18 @@ You are building the "ultimate" RAG pipeline for a financial services company. I
 Draw a diagram (using Mermaid if you can, or just text) that shows the complete flow of a user query through the following components. Connect them with arrows to show the sequence.
 
 **Components to include:**
-1.  User Query
-2.  Retriever (Vector DB)
-3.  Metadata Filter (Keep only documents from the last 12 months)
-4.  Re-ranker (Cross-Encoder)
-5.  Contextual Compressor
-6.  Generator (Main LLM)
-7.  Final Answer
+1.  User query
+2.  Query transformation (multi-query or HyDE)
+3.  Hybrid retriever (vector + BM25, fused)
+4.  Metadata filter (last 12 months only; documents the user is cleared to see)
+5.  Re-ranker (cross-encoder)
+6.  Contextual compressor
+7.  Generator
+8.  Final answer with citations
 
-This exercise will challenge you to assemble everything you've learned in Modules 3 and 4 into a single, state-of-the-art RAG architecture. 
+**Then answer these:**
+
+1.  **Where does the funnel narrow?** Give a candidate count at each stage (e.g. 4 queries → 200 candidates → …) and justify each number.
+2.  **Where does the permission filter go, and why can it not go anywhere else?** Be specific about what breaks if it sits one stage later.
+3.  **Two stages could be dropped to halve latency.** Which two, what accuracy do you expect to lose, and how would you decide whether the trade is acceptable?
+4.  **Which stage would you add first if this were a v1 with only steps 1, 3, 7, and 8?** Justify it using the priority order from section 3. 

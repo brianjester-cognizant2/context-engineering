@@ -54,7 +54,45 @@ chunks = text_splitter.split_text(my_text)
 ```
 
 > **Deep Dive: Advanced Chunking**
-> For more complex needs, you can explore strategies like **Semantic Chunking**, which uses an embedding model to find natural topic breaks, or **Agentic Chunking**, where an LLM "reasons" about the document to create highly relevant question/answer pairs for each chunk.
+> For more complex needs, explore **Semantic Chunking**, which uses an embedding model to find natural topic breaks, or **Agentic Chunking**, where a model reasons about the document to produce chunks aligned to the questions users actually ask.
+
+**C. Structure-Aware Chunking**
+For documents with real structure — Markdown, HTML, code, PDFs with headings — split on the structure rather than on characters. A Markdown splitter that breaks on headings and carries the heading path into each chunk's metadata gives you chunks that are self-describing. This is usually a larger quality win than tuning `chunk_size`, and it takes about the same effort.
+
+---
+
+### **2b. Contextual Retrieval: Fixing the Orphaned Chunk**
+
+Here's a failure mode that shows up in essentially every naive RAG system, and it's worth fixing early because the fix is cheap.
+
+Chunking destroys context. Consider this chunk, extracted verbatim from a quarterly report:
+
+> *"Revenue grew 12% over the previous quarter, driven primarily by enterprise renewals."*
+
+A user asks: *"What was ACME's Q3 2025 revenue growth?"* This chunk **is the answer** — and it will very likely not be retrieved, because it contains neither "ACME" nor "Q3" nor "2025". The words that would have matched the query were in the document title and the section heading, three pages up. Embedded in isolation, the chunk is an orphan.
+
+**Contextual retrieval** fixes this at indexing time: before embedding, prepend a short generated description situating the chunk in its source document.
+
+```python
+CONTEXTUALIZE = (
+    "Here is a document:\n<document>{doc}</document>\n\n"
+    "Here is a chunk from it:\n<chunk>{chunk}</chunk>\n\n"
+    "Write 1-2 sentences situating this chunk within the document, to improve "
+    "search retrieval of the chunk. Answer with only that context, nothing else."
+)
+
+def contextualize(chunk, doc):
+    blurb = cheap_model(CONTEXTUALIZE.format(doc=doc, chunk=chunk))
+    return f"{blurb}\n\n{chunk}"      # embed this; store the original for display
+```
+
+The chunk that gets embedded becomes:
+
+> *"This chunk is from ACME Corp's Q3 2025 quarterly earnings report, in the section on revenue performance. Revenue grew 12% over the previous quarter, driven primarily by enterprise renewals."*
+
+Now it matches the query. Reported retrieval-failure reductions from this technique are substantial — commonly cited around a third, and larger still when combined with hybrid search and re-ranking (Lesson 3 and Module 4, Lesson 3).
+
+**The trade-off is real but usually favourable:** you pay one cheap model call per chunk, once, at index time — and prompt caching makes it cheaper still, since the same document is the prefix for all of its chunks. You pay nothing extra per query, forever. **Store the original chunk for display and embed the contextualized version**, so users see clean text while the index sees enriched text.
 
 ---
 
@@ -94,9 +132,11 @@ This vector is the key to our semantic search. In the next lesson, we'll learn h
 
 ### **Key Takeaways**
 
-*   The "indexing" pipeline consists of **Ingesting** documents, **Chunking** them into smaller pieces, and **Embedding** each piece into a vector.
-*   **Chunking** is essential for efficient search. Recursive splitting is the best all-around starting method.
-*   **Vector embeddings** translate the *meaning* of your text into a numerical format that computers can use to find similar concepts.
+*   The indexing pipeline is **Ingest → Chunk → Embed**.
+*   **Chunking** is essential. Recursive splitting is the default; **structure-aware splitting** is usually a bigger win than tuning chunk size.
+*   **Contextual retrieval** — prepending a generated situating sentence before embedding — fixes the orphaned-chunk problem for a one-time indexing cost and no per-query cost.
+*   **Vector embeddings** turn meaning into coordinates, so "close together" means "similar in meaning."
+*   Index-time investment is almost always cheaper than query-time investment: you pay it once, and every query benefits.
 
 ### **Hands-On Task: The Chunking Challenge**
 
@@ -116,6 +156,8 @@ Saturn is known for its beautiful rings.
 ```
 
 **Your Task:**
-1.  **Chunk it Manually:** First, thinking logically, how would you split this document into meaningful chunks? Copy and paste the text and draw lines (`---`) where you think the best splits are. What is your reasoning?
-2.  **Fixed-Size Chunking:** Imagine you used a fixed-size chunker with `chunk_size=70` characters. Write out what the first chunk would be. What's the problem with it?
-3.  **Recursive Chunking:** The `RecursiveCharacterTextSplitter` from the example prioritizes splitting on `\n\n`. Looking at the `doc` string, what would its first two chunks be? Why is this a better result than the fixed-size approach? 
+1.  **Chunk it manually.** How would you split this into meaningful chunks? Paste the text and draw `---` where the best splits are. What's your reasoning?
+2.  **Fixed-size chunking.** With `chunk_size=70` characters, write out the first chunk. What's wrong with it?
+3.  **Recursive chunking.** `RecursiveCharacterTextSplitter` prioritizes `\n\n`. What would its first two chunks be, and why is that better?
+4.  **Find the orphan.** A user asks *"How many planets are gas giants?"* Which of your recursive chunks contains the answer? Now read that chunk in isolation, with no document title — would a semantic search for that query actually retrieve it? Explain what's missing.
+5.  **Contextualize it.** Write the 1–2 sentence blurb you'd prepend to that chunk before embedding. Then state precisely which words in your blurb do the retrieval work, and why they weren't in the chunk already.

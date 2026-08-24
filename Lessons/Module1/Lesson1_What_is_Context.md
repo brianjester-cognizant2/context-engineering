@@ -2,146 +2,180 @@
 
 ### Welcome!
 
-Welcome to the first lesson! We're starting with the single most important concept in building modern AI applications. Understanding this concept is the foundation for everything else you'll learn in this course.
+Welcome to the first lesson. We're starting with the concept everything else in this course is built on. Get this one right and the rest of the course is elaboration; get it wrong and no amount of clever prompting will save your application.
 
 ### Learning Objectives
 
 By the end of this lesson, you will be able to:
-*   **Define** "context" in the context of AI and list its core components.
-*   **Explain** why high-quality context is critical for model performance.
-*   **Illustrate** how engineered context can be used to mitigate AI hallucinations and bias.
+*   **Define** "context" and list the components that make it up in a modern system.
+*   **Distinguish** context engineering from prompt engineering.
+*   **Explain** why high-quality context is the primary lever on model behavior.
 *   **Analyze** a failed AI interaction and identify the missing context.
 
 ---
 
 ### **1. Defining "Context": The AI's Worldview**
 
-At its core, **context** is all the information an AI model uses to understand and respond to a user's request. Newcomers often mistake "context" as being just the immediate question they ask. In reality, it's a rich, multi-layered tapestry of information that we, as engineers, must skillfully weave together.
+At its core, **context** is all the information an AI model uses to understand and respond to a request. Newcomers usually think context means "the question I typed." In reality it's a layered assembly of information that we, as engineers, deliberately construct.
 
-Think of it like talking to a human expert. If you ask, "What's the status?", their answer depends entirely on the situation:
-*   Are you in a hospital? They'll give you a patient's status.
-*   Are you in a project meeting? They'll give you a project update.
-*   Are you at a launch site? They'll give you a rocket's status.
+Think of asking a human expert, "What's the status?" Their answer depends entirely on the situation:
+*   In a hospital? A patient's status.
+*   In a project meeting? A project update.
+*   At a launch site? A rocket's status.
 
-The expert uses the surrounding environment, previous conversation, and their own knowledge to understand the *true* intent of your question. For an AI, **we have to provide all of that information explicitly.**
+The expert uses their surroundings, the previous conversation, and their own experience to infer what you actually mean. **A model has none of that unless you supply it.** Whatever you put in the context window *is* the model's entire world for that turn.
 
 > **Deep Dive: The Components of Context**
-> The information we provide to an AI is its entire world. This can include:
-> *   **System Prompt / Instructions:** The foundational rules, persona, and guidelines. This is the AI's "job description."
-> *   **The User's Immediate Query:** The question or command the user just typed.
-> *   **Chat History:** The preceding turns of the conversation, providing short-term memory.
-> *   **Retrieved Information (RAG):** External documents, database records, or knowledge base articles fetched in real-time. This is the AI's "reference library."
-> *   **Tool/Function Definitions:** Descriptions of the capabilities (APIs, functions) the model can use. This is the AI's set of "special abilities."
-> *   **Example Scenarios (Few-shot prompts):** Examples of desired input/output pairs that act as a "style guide."
+> In a modern system, context is assembled from:
+> *   **System instructions:** the rules, persona, and constraints — the model's "job description."
+> *   **The user's immediate request:** what was just asked.
+> *   **Conversation history:** the preceding turns, providing short-term memory.
+> *   **Retrieved information:** documents, database rows, or search results fetched at request time — the model's "reference library."
+> *   **Tool definitions:** descriptions of the functions and services the model may invoke — its "abilities."
+> *   **Tool results:** what came back when it used them — its "observations."
+> *   **Examples:** demonstrations of the desired input/output shape — a "style guide."
+> *   **Durable memory:** facts, preferences, and lessons persisted from earlier sessions.
+> *   **Task state:** for agents, the current plan and how far along it is.
+>
+> The first five or six of these existed in 2023. The last three arrived with agents — and they're a large part of why this course keeps going after Module 3.
 
 ---
 
-### **2. The Amplified "Garbage In, Garbage Out" Principle**
+### **2. Context Engineering vs. Prompt Engineering**
 
-"Garbage In, Garbage Out" (GIGO) is a classic concept in computer science. For LLMs, it's amplified. Giving an LLM poor, irrelevant, or confusing context doesn't just lead to a wrong answer; it can lead to a confidently wrong, misleading, and utterly fabricated answer—a **hallucination**.
+These get used interchangeably, and the distinction is worth being precise about because it determines where you spend your effort.
+
+**Prompt engineering** asks: *what words produce the behavior I want?* It's a discrete task — you write a good prompt, you're done, and it stays written.
+
+**Context engineering** asks: *what configuration of information produces the behavior I want?* It's a continuous, runtime concern — a decision your code makes **on every single turn**, about what to include, what to leave out, what to compress, and in what order.
+
+|  | Prompt engineering | Context engineering |
+| :--- | :--- | :--- |
+| **Unit** | The prompt | The whole context window |
+| **When decided** | Once, at authoring time | Every turn, at runtime |
+| **Who decides** | A human writing text | Code you wrote |
+| **Typical failure** | Ambiguous instructions | Wrong, missing, or too much information |
+
+Prompt engineering is a *subset* of context engineering — the system instructions are one component among many. You still need to write them well. But in a system that retrieves documents, calls tools, and runs for fifty turns, the words in your system prompt are a small fraction of what the model actually sees.
+
+> **The one-sentence version:** prompt engineering is what you write; context engineering is what your code assembles.
+
+---
+
+### **3. The Amplified "Garbage In, Garbage Out" Principle**
+
+"Garbage In, Garbage Out" is a classic idea. For language models it's amplified in a specific way: poor context doesn't produce an obviously broken answer. It produces a **fluent, confident, wrong** one — a hallucination. The failure is disguised as success, which makes it far more dangerous than a crash.
 
 **Practical Example: The Vague Support Query**
 
-Imagine a user is having trouble with their "Series A" smart fridge and a support bot has access to all company documentation.
+A user is having trouble with their "Series A" smart fridge, and a support bot has access to all company documentation.
 
-**Scenario A: Poor Context (The "Garbage In")**
-The only context the AI gets is the user's raw question.
+**Scenario A: Poor context**
+The model gets only the raw question.
 ```json
 {
   "user_query": "It's not working, what do I do?",
   "chat_history": []
 }
 ```
-**AI Response (The "Garbage Out"):**
-> "I'm sorry to hear you're having trouble. Could you please tell me what product you're using? You could try turning it off and on again, checking the power supply, or consulting the user manual for troubleshooting steps."
+**Response:**
+> "I'm sorry to hear you're having trouble. Could you tell me what product you're using? You could try turning it off and on again, checking the power supply, or consulting the user manual."
 
-This response is generic, unhelpful, and forces the user to do more work.
+Generic, unhelpful, and it pushes the work back onto the user.
 
-**Scenario B: Rich Context (The "Quality In")**
-The engineer provides the AI with more information.
+**Scenario B: Engineered context**
 ```json
 {
-  "system_prompt": "You are a helpful and friendly support bot for ACME Inc. products. Use the provided information to help the user solve their problem. Prioritize solutions from the user's specific product manual.",
+  "system_prompt": "You are a support assistant for ACME Inc. products. Use the provided information to help the user solve their problem. Prioritize solutions from the user's specific product manual.",
   "user_query": "It's not working, what do I do?",
   "chat_history": [
-    { "user": "Hi, I need help with my new fridge.", "bot": "Of course! I can help with that. Can you tell me the model number?"},
-    { "user": "It's the ACME SmartFridge Series A.", "bot": "Thank you. I have the manual for the Series A pulled up. What seems to be the issue?"}
+    { "user": "Hi, I need help with my new fridge.", "bot": "Of course! Can you tell me the model number?" },
+    { "user": "It's the ACME SmartFridge Series A.", "bot": "Thank you. I have the Series A manual. What seems to be the issue?" }
   ],
   "retrieved_knowledge": [
     {
       "source": "manual_series_a.pdf",
-      "content": "Common Issue: Ice maker not dispensing ice. Cause: The 'Child Lock' feature disables the ice and water dispenser. Solution: Press and hold the 'Lock' button for 3 seconds to deactivate the Child Lock. A green light will indicate it's unlocked."
+      "content": "Common Issue: Ice maker not dispensing ice. Cause: The 'Child Lock' feature disables the ice and water dispenser. Solution: Press and hold the 'Lock' button for 3 seconds to deactivate. A green light indicates it's unlocked."
     }
   ]
 }
 ```
-**AI Response (The "Quality Out"):**
-> "I see you're using the ACME SmartFridge Series A. A common issue is that the child lock might be accidentally enabled, which stops the ice dispenser from working. Could you check if there's a lock symbol on the display? If so, please try pressing and holding the 'Lock' button for three seconds to see if that solves it."
+**Response:**
+> "I see you're using the ACME SmartFridge Series A. A common cause is the child lock being enabled, which disables the ice dispenser. Could you check whether there's a lock symbol on the display? If so, hold the 'Lock' button for three seconds."
 
-This is a specific, actionable, and immediately useful response, all because we engineered the right context.
+Same model. Same question. The entire difference is the context we engineered.
 
 ---
 
-### **3. Context as a Control Mechanism**
+### **4. Context as a Control Mechanism**
 
-Context is the primary lever we have to control the core attributes of our AI's behavior.
+Context is the primary lever you have over model behavior — and it's a far more precise one than tone-of-voice tweaks to a prompt.
 
-*   **Factual Accuracy:** An LLM's internal knowledge is static and can be wrong or outdated. Good context, especially from external documents (RAG), grounds the model in reality. Without it, the model is just guessing based on patterns in its training data.
+*   **Factual accuracy.** A model's internal knowledge is a frozen snapshot and can be wrong or outdated. Supplying facts in context grounds it in reality. Without that, it's pattern-matching against training data and hoping.
 
-*   **Bias Mitigation:** All models have inherent biases from their training data. We can use context to actively counteract this. By setting explicit rules in the system prompt, we can guide the model toward fairer, more inclusive language.
+*   **Bias mitigation.** Models carry biases from their training data. Explicit rules in the context actively counteract them.
 
 **Code Example: Mitigating Bias with Context**
 
-Let's ask a model to write a job description. Without guidance, it might produce biased text.
-
-**Request (Poor Context):**
-```python
-# ... (code for a simple request)
-# Potential Biased Output:
-# "...we are looking for a competitive code ninja... He will be responsible for..."
+Ask a model to write a job description with no guidance and you may get:
 ```
-This contains gendered language ("he") and potentially exclusionary jargon ("code ninja").
-
-**Request (Engineered Context to Reduce Bias):**
-By adding rules to the system prompt, we can directly steer the model's output.
+"...we are looking for a competitive code ninja... He will be responsible for..."
+```
+Gendered pronouns and exclusionary jargon. Now engineer the context:
 ```python
-# We explicitly engineer the context to demand inclusivity.
 system_prompt = """
-You are a hiring manager for a global tech company dedicated to diversity and inclusion. 
-Your task is to write job descriptions that are welcoming to candidates of all genders, backgrounds, and levels of experience. 
-**RULES:**
-1.  Use gender-neutral language (e.g., 'they', 'the candidate').
-2.  Avoid jargon or cultural phrases that might exclude potential applicants (e.g., 'code ninja', 'rockstar').
-3.  Focus on concrete skills and responsibilities.
-4.  Emphasize the company's commitment to a collaborative and supportive work environment.
-"""
+You are a hiring manager at a company committed to diversity and inclusion.
+Write job descriptions that are welcoming to candidates of all genders,
+backgrounds, and experience levels.
 
-# ... (code to call the model with this system_prompt)
-# Improved, Less-Biased Output:
-# "...we are looking for a talented software developer to join our collaborative team. The ideal candidate will be responsible for..."
+# RULES
+1. Use gender-neutral language ('they', 'the candidate').
+2. Avoid jargon that may exclude applicants ('code ninja', 'rockstar').
+3. Focus on concrete skills and responsibilities.
+4. Emphasize a collaborative, supportive environment.
+"""
 ```
-By simply refining the instructions, we fundamentally changed the output. This is context engineering in action.
+Result:
+```
+"...we are looking for a talented software developer to join our collaborative
+team. The ideal candidate will be responsible for..."
+```
+Refining the instructions fundamentally changed the output. That's context engineering at its simplest.
+
+---
+
+### **5. A Preview of the Hard Part**
+
+If context is this powerful, the obvious move is to include everything. That instinct is wrong, and understanding *why* is most of what this course teaches.
+
+Context is a **finite, degrading resource**. It costs money and latency, and — less obviously — model accuracy falls as the window fills, well before any hard limit. Adding irrelevant information doesn't just waste tokens; it actively makes answers worse.
+
+So context engineering is never "include more." It's a budgeting discipline: **the most useful information, in the fewest tokens, in the right order.** Module 4 gets rigorous about this. For now, just carry the instinct that more is not free.
 
 ---
 
 ### **Key Takeaways**
 
-*   Context is **everything** you send to the model, not just the user's question.
-*   Poor context leads to poor results (hallucinations, generic answers). Rich, relevant context leads to specific, accurate results.
-*   You can and should use context (especially the system prompt) to actively control for things like accuracy, tone, and bias.
+*   Context is **everything the model sees**, not just the user's question — instructions, history, retrieved data, tools, tool results, memory, and task state.
+*   **Prompt engineering is what you write; context engineering is what your code assembles**, on every turn, at runtime.
+*   Poor context produces **confidently wrong** answers, which is worse than obviously broken ones.
+*   Context is your main control surface for accuracy, tone, and bias.
+*   Context is **finite and degrades**. More is not better; better is better.
 
 ### **Hands-On Task: Deconstruct an AI Failure**
 
-Think about a time you've used a chatbot or AI assistant and it gave you a bad or unhelpful answer.
+Think of a time an AI assistant gave you a bad or unhelpful answer.
 
-1.  **Describe the situation:** What was your goal? What did you ask? What did the AI say?
-2.  **Deconstruct the context (As the AI):**
-    *   What was your **user query**?
-    *   What do you think the AI's **system prompt** might have been? (e.g., "You are a helpful assistant.")
-    *   What **knowledge** was it missing? Was there a document it should have had access to?
-3.  **Engineer a better context:**
-    *   Rewrite the system prompt to be more specific to your goal.
-    *   Write down the single piece of "retrieved knowledge" (like in our fridge example) that, if provided, would have allowed the AI to answer your question correctly.
-    *   Combine these into an improved "context package" that would have led to a successful interaction.
+1.  **Describe the situation.** What was your goal? What did you ask? What did it say?
+2.  **Deconstruct the context, as the AI.**
+    *   What was the **user query**?
+    *   What do you think the **system instructions** were?
+    *   What **knowledge** was missing? Was there a document it should have had?
+    *   Was there **memory** it should have had from an earlier interaction?
+3.  **Engineer a better context.**
+    *   Rewrite the system instructions to be specific to your goal.
+    *   Write the single piece of retrieved knowledge that would have unlocked a correct answer.
+    *   Combine them into an improved context package.
+4.  **Now find the failure it *didn't* have.** Name one piece of information that would have been *tempting* to include but would have made the answer worse. Why?
 
-This exercise will help you develop the habit of thinking like a context engineer—diagnosing problems by analyzing the information an AI has (or doesn't have). 
+That last step is the habit that separates context engineering from "add more stuff."

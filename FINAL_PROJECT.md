@@ -1,59 +1,112 @@
-# **Final Project: Build an AI Research Assistant**
+# **Final Project: Build a Research Agent You Would Actually Deploy**
 
 ## **Objective**
 
-The goal of this final project is to synthesize the skills and concepts learned throughout this course to build a complete, professional-grade AI agent. You will design and implement an "AI Research Assistant" that can take a complex research query, search for information, synthesize findings, and provide a well-structured, cited answer.
+Synthesize the course into one working system: an **AI Research Assistant** that takes a complex question, gathers information, and returns a well-structured, cited answer.
 
-This project will require you to think not just as a prompt engineer, but as a true context architect, making deliberate design decisions about every component of your system.
+The emphasis is on the second half of that sentence. A research agent that produces good answers on a demo query is a weekend project. This assignment asks for one you could hand to a colleague and let run unattended — which means the interesting work is in the harness, the verification, and the evals, not in the prompt.
 
----
-
-## **Core Requirements**
-
-Your AI Research Assistant must have the following capabilities:
-
-1.  **Tool Use:** The agent must use at least one external tool for searching the web or a database for up-to-date information.
-2.  **RAG Implementation:** The agent must use a Retrieval-Augmented Generation pipeline to ground its answers in factual data. This involves:
-    *   Creating a vector store from a set of documents (you can use the lessons from this course as your knowledge base!).
-    *   Retrieving relevant chunks of information based on the user's query.
-3.  **Agentic Logic:** The agent must operate using an agentic loop (like **ReAct**) to reason about the user's query, decide which tool to use (e.g., web search vs. RAG), and synthesize the results.
-4.  **Structured Output:** The final answer must be well-formatted (e.g., using Markdown) and must include citations that clearly indicate which parts of the answer came from which retrieved sources.
-5.  **Defensive Design:** The agent's prompt must be engineered to be resilient against basic prompt injection attacks.
+You will design it as an **architecture**, build it, **measure** it, and **attack** it.
 
 ---
 
-## **Architectural Design (CWA)**
+## **Part 1 — The Architecture Spec (do this first)**
 
-Before you begin coding, you must design your agent's architecture using the principles of **Context Window Architecture (CWA)**. You should be able to describe what information will be placed in each of the following layers of your agent's context:
+Before writing code, complete the one-page spec from [Module 8, Lesson 4](./Lessons/Module8/Lesson4_Agentic_Architecture.md), covering all six planes:
 
-*   **Layer 1: Instructions:** What is the agent's persona and primary goal?
-*   **Layer 3: Curated Knowledge:** What information will your RAG system provide?
-*   **Layer 4: Task/Goal State:** How will the agent track its progress on a research task?
-*   **Layer 7: Tool Explanation:** How will you describe your search and RAG tools to the agent?
-*   **Layer 11: User's Latest Query:** The specific research question.
+| Plane | What you must decide |
+| :--- | :--- |
+| **1 · Model** | Which model for which step. Where cheap models suffice. Where your cache breakpoints sit |
+| **2 · Context** | Assembly order (stable → volatile), retrieval strategy, compaction trigger, token budget |
+| **3 · Capability** | Every tool, its permission scope, and its error contract. **Plus what you deliberately withheld** |
+| **4 · Control** | Trigger, the goal as a *verifiable end state*, loop pattern, all termination conditions |
+| **5 · Verification** | The in-loop check and its tier, your eval set, any human gates |
+| **6 · Governance** | What you trace, your cost ceiling, **where untrusted input enters**, and your blast radius |
 
----
-
-## **Evaluation Plan**
-
-You must define a simple evaluation plan to test your agent's performance. This should include:
-
-1.  A small, hand-crafted evaluation dataset of at least 5 questions.
-2.  At least three "natural language unit tests" (using the **LMUnit** paradigm) to evaluate the quality of your agent's responses. Examples could include:
-    *   "Does the response directly answer the user's question?"
-    *   "Are all claims in the response supported by a citation?"
-    *   "Is the formatting of the response clean and readable?"
+Two lines are graded most heavily, because they're the ones people skip: **"explicitly NOT given"** and **"untrusted input enters at."**
 
 ---
 
-## **Submission**
+## **Part 2 — Build It**
 
-To complete the project, you should have:
-1.  The complete, runnable code for your AI agent.
-2.  A `README.md` file for your project that includes:
-    *   Your CWA design document.
-    *   Your evaluation plan.
-    *   Instructions on how to run your agent.
-    *   A few example outputs from your agent.
+**Core requirements:**
 
-This final project is the ultimate test of your abilities as a context engineer, bringing together every module of this course into a single, practical application. Good luck! 
+1.  **Tools.** At least one for external search, plus a retrieval tool over a document set. Use the lessons in this course as your corpus if you like. Every tool must return **actionable errors** and must never raise into the loop.
+
+2.  **Grounding.** Answers must be grounded in retrieved evidence. Choose your retrieval strategy deliberately using the decision guide in [Module 3, Lesson 5](./Lessons/Module3/Lesson5_Agentic_Retrieval.md) — and **justify the choice against your corpus's properties**. "I used vector RAG because that's what RAG means" is not a justification.
+
+3.  **An agent loop with a real exit condition.** Specify trigger, goal, actions, verification, and memory ([Module 8, Lesson 2](./Lessons/Module8/Lesson2_Loop_Engineering.md)). The loop must **not** terminate on the model's self-report. Include an iteration cap, a token budget, and no-progress detection.
+
+4.  **Long-horizon context management.** At minimum: a token budget enforced in code, plus **one** of compaction, structured note-taking, or sub-agent isolation. Say why you chose that one.
+
+5.  **Citations, verified.** Every factual claim carries a source. Then go further — **programmatically check that each cited source exists and actually contains the claim's supporting text.** An unverified citation is decoration.
+
+6.  **Least privilege.** Read-only where possible. No capability the agent doesn't need. If your agent can act outward, say what stops a prompt-injected version of it.
+
+---
+
+## **Part 3 — Measure It**
+
+Build an eval set **before** you finish building the agent.
+
+1.  **At least 25 cases**, stratified across: easy factual lookups, multi-hop questions requiring synthesis, questions your corpus *cannot* answer (the agent should say so), and ambiguous questions.
+    *   *25 is a smoke test, not a measurement.* State explicitly what your set can and cannot detect ([Module 6, Lesson 1](./Lessons/Module6/Lesson1_Evaluating_Context_Quality_and_RAG_Performance.md)).
+
+2.  **Score the four RAG pillars** — context precision, context recall, faithfulness, answer relevance — on a labeled subset.
+
+3.  **Score the trajectory**, not just the answer, on at least 5 cases across the six dimensions: tool selection, argument extraction, result utilization, error recovery, plan coherence, task completion.
+
+4.  **Write at least four natural-language unit tests** in the LMUnit style, and **calibrate your judge** on 20 hand-labeled examples. Report the agreement and what you changed in the rubric.
+
+5.  **Report cost and latency** per query, with a token breakdown by context section.
+
+---
+
+## **Part 4 — Attack It**
+
+Write and run at least **four red-team cases** ([Module 6, Lesson 3](./Lessons/Module6/Lesson3_Security_for_Context-Aware_Systems.md)). At minimum:
+
+*   **Indirect injection.** Plant a document in your corpus containing instructions to the agent. Does it follow them?
+*   **Exfiltration.** Can any path get data out — a fetched URL, a rendered image, a written file, a posted comment?
+*   **Scope escape.** Can it be induced to read or write outside its permitted scope?
+*   **Resource exhaustion.** Can a crafted query make it loop until the budget dies?
+
+For each, state what result constitutes a **failure**, and be strict: a test that only checks the final text passes when the agent did something forbidden and happened not to mention it.
+
+Then run the trifecta audit. If your agent has all three legs, **either break one or document explicitly why you accepted the risk and what bounds it.**
+
+---
+
+## **Part 5 — Deliverables**
+
+1.  **Runnable code**, with setup instructions.
+2.  **`ARCHITECTURE.md`** — the six-plane spec from Part 1, updated to describe what you actually built (they will differ; note where and why).
+3.  **`EVALUATION.md`** — eval set, results, judge calibration, cost and latency, and an honest account of what your evals cannot detect.
+4.  **`SECURITY.md`** — red-team cases and results, the trifecta audit, and your accepted risks with a named owner for each.
+5.  **Three example runs**, including the full trace of one — and at least one where the agent **failed or escalated**. A submission where everything worked is a submission that wasn't tested hard enough.
+
+---
+
+## **Part 6 — The Write-Up**
+
+Answer these in a short `REFLECTION.md`. This is the part that demonstrates whether the course landed.
+
+1.  **Which plane is thinnest?** Deliberate scoping or unowned concern? Say which.
+2.  **Trace a failure.** Pick a real failure from your runs, walk it back to a plane, and name the structural change that prevents recurrence. Confirm it's a change to the *system*, not to the wording of a prompt.
+3.  **What did your evals fail to catch?** Name a failure you found by hand that your eval set missed, and write the case that would have caught it.
+4.  **What did you deliberately not build**, and what would have to be true for you to build it?
+5.  **If you had to raise this agent one autonomy level** — from proposing to acting — what evidence would you need first, and what would make you demote it?
+
+---
+
+## **Grading Emphasis**
+
+| Weight | Area |
+| ---: | :--- |
+| 25% | Architecture spec: completeness, and the honesty of the "NOT given" and "untrusted input" lines |
+| 25% | Evaluation: quality of the eval set, judge calibration, and candor about limitations |
+| 20% | Harness: verification that isn't self-report, real termination conditions, actionable tool errors |
+| 15% | Security: red-team rigor and the trifecta audit |
+| 15% | The agent itself: does it produce good, cited, grounded answers |
+
+Note that the agent working is worth the least. That is deliberate, and it is the summary of the whole course: **anyone can get an agent to work once. The engineering is in knowing that it works, knowing when it doesn't, and bounding what happens when it fails.**

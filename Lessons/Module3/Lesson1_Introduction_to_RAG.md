@@ -7,10 +7,11 @@ In Module 2, we mastered the art of prompting. But even the best prompt is usele
 ### Learning Objectives
 
 By the end of this lesson, you will be able to:
-*   **Explain** what RAG is and why it's a solution to knowledge cutoffs and hallucinations.
-*   **Draw** a simple diagram of the RAG architecture, labeling the Retriever and the Generator.
-*   **List** the three primary benefits of using RAG: real-time data access, reduced hallucinations, and verifiability.
-*   **Assemble** a conceptual prompt that shows how a Generator uses retrieved context to answer a user's question.
+*   **Explain** what RAG is and why it addresses knowledge cutoffs and hallucinations.
+*   **Draw** the RAG architecture, labeling the Retriever and the Generator.
+*   **List** the three primary benefits: real-time data access, reduced hallucinations, and verifiability.
+*   **Assemble** a prompt showing how a Generator uses retrieved context.
+*   **Position** RAG correctly as *one* retrieval strategy among several, not the default answer.
 
 ---
 
@@ -43,6 +44,8 @@ A RAG system has two core components:
 **Diagram: The Flow of a RAG Query**
 ```mermaid
 graph TD
+    accTitle: RAG query flow
+    accDescr: A user query goes to a retriever, which searches a knowledge base and returns relevant documents. Query and documents are combined into a prompt for the language model, which produces a synthesized answer.
     A[User Query] --> B{Retriever};
     C[Knowledge Base] --> B;
     B --> D[Relevant Documents];
@@ -72,11 +75,31 @@ RAG is transformative for three key reasons:
 
 ---
 
+---
+
+### **4. A Note on Scope: RAG Is a Strategy, Not the Default**
+
+One clarification before we spend three lessons on the machinery, because it will save you from over-applying it.
+
+"RAG" in common usage means something quite specific: **chunk documents, embed them, store the vectors, retrieve by semantic similarity.** That pipeline is excellent for a particular shape of problem — a large corpus of unstructured text, queried in fuzzy natural language, where the right answer is "the passage that is semantically closest."
+
+It is *not* the only way to get information into a context window, and by 2026 it stopped being the automatic answer:
+
+*   If your data is **structured**, query it. A SQL query against your orders table beats embedding your orders table, every time.
+*   If your corpus is **code or a filesystem**, agentic search — `glob`, `grep`, read, follow the imports — generally outperforms vector retrieval. Lesson 5 covers why.
+*   If the answer lives behind an **API**, call the API. A tool that returns today's inventory beats a vector index of last week's.
+*   If the corpus is **small enough**, just include it. Retrieval infrastructure to search four documents is engineering theatre.
+
+The broader skill this module is really teaching is **grounding**: making a model answer from supplied evidence rather than from memory. Vector RAG is one implementation of grounding. Learn it thoroughly — it's the right tool often — and learn its edges, which is what Lesson 5 is for.
+
+---
+
 ### **Key Takeaways**
 
-*   RAG turns a "closed-book" exam into an "open-book" exam, giving the LLM the information it needs to answer questions about recent, private, or specialized topics.
-*   The system works in two steps: the **Retriever** finds relevant documents, and the **Generator** (LLM) uses those documents to write an answer.
-*   RAG is the primary method for reducing hallucinations and increasing the factual accuracy of AI applications.
+*   RAG turns a "closed-book" exam into an "open-book" one, letting a model answer about recent, private, or specialized topics.
+*   Two components: the **Retriever** finds relevant material, the **Generator** writes a grounded answer.
+*   RAG's three benefits are **real-time/private data access, reduced hallucination, and verifiability through citations.**
+*   RAG is **one grounding strategy**. Structured data wants a query, code wants agentic search, live data wants an API, and a tiny corpus wants no retrieval at all.
 
 ### **Hands-On Task: Design a RAG Prompt**
 

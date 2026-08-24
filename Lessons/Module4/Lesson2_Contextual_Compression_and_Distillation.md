@@ -35,14 +35,16 @@ The most common way to implement this is to add a "compression" step to your RAG
 **Diagram: RAG Pipeline with Compression**
 ```mermaid
 graph TD
-    A[User Query] -->B{1. Retriever};
+    accTitle: RAG pipeline with a compression step
+    accDescr: A user query goes to a retriever producing full documents. A compressor step feeds each full document plus the query to a small model, producing compressed snippets. Those snippets and the query go to the main generator model, which produces the final answer.
+    A[User Query] --> B{1. Retriever};
     B --> C[Full Documents];
     C --> D{2. Compressor};
     subgraph Compressor Step
         direction LR
         D_C[Full Document]
         D_Q[User Query]
-        D_LLM((Small LLM))
+        D_LLM(("Small LLM"))
     end
     C --> D_C;
     A --> D_Q;
@@ -82,7 +84,19 @@ Contextual compression is a balancing act.
 The right balance depends entirely on your use case. Factual Q&A can tolerate high compression, while complex reasoning requires more fidelity.
 
 > **Pro-Tip: Use Pre-built Retrievers**
-> Frameworks like **LangChain** and **LlamaIndex** have built-in `ContextualCompressionRetriever` objects. These wrappers handle the entire retrieve-then-compress workflow, allowing you to easily plug in different compressor models and find the right balance for your application without writing all the boilerplate code.
+> Most retrieval frameworks ship a contextual-compression retriever that wraps the retrieve-then-compress workflow, letting you swap compressor models without rewriting the boilerplate.
+
+---
+
+### **4. Where Else Compression Applies**
+
+The pattern here — *use a cheap model to reduce something before it reaches the expensive one* — is not limited to retrieved documents. Three other places it pays, all of which you'll meet in the next lesson and in Module 5:
+
+*   **Tool results.** A tool returning 8,000 tokens of JSON is a compression opportunity dressed as a data structure. Summarize it, offload the bulk to a file, and put a reference in context (Module 5, Lesson 2).
+*   **Conversation history.** Summarization memory *is* compression applied to dialogue. At agent scale it becomes **compaction** (Lesson 4).
+*   **Sub-agent output.** A sub-agent that explores in 50,000 tokens and returns 1,500 is performing the most aggressive compression in this course — and the cheapest, because the coordinator never pays for the discarded 48,500 (Lesson 4).
+
+Compression, compaction, distillation, and sub-agent isolation are four names for one idea applied to four kinds of content. If you understand the fidelity trade-off here, you understand all four.
 
 ---
 
@@ -90,7 +104,8 @@ The right balance depends entirely on your use case. Factual Q&A can tolerate hi
 
 *   **Contextual Compression** is a technique to filter out "noise" from retrieved documents before they reach the main LLM.
 *   It works by using a smaller, faster LLM to either **filter** entire documents or **distill** them by extracting only the most relevant sentences.
-*   There is a direct trade-off between the **compression ratio** (how many tokens you save) and **information fidelity** (how much meaning you preserve).
+*   There is a direct trade-off between **compression ratio** and **information fidelity**. Factual Q&A tolerates aggressive compression; complex reasoning does not.
+*   The same pattern applies to **tool results, conversation history, and sub-agent output** — compression, compaction, and isolation are one idea applied to different content.
 
 ### **Hands-On Task: To Compress or Not to Compress?**
 

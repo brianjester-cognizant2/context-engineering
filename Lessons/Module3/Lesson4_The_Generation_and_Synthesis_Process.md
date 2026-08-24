@@ -84,7 +84,11 @@ This answer is:
 *   **Accurate:** It's based directly on the retrieved documents.
 *   **Trustworthy:** It provides the user with the sources so they can verify the claims.
 
-This completes the core RAG pipeline. The following modules will explore how to optimize each of these steps, but you now have the complete blueprint for building a powerful, fact-based AI application.
+This completes the core RAG pipeline. The following modules optimize each step, but you now have the complete blueprint.
+
+> **One caveat before you trust those citations.** The model attaches a source to a claim because it was instructed to, not because it verified the attribution. Models do misattribute — pairing a real claim with the wrong retrieved source, or citing a source that supports something adjacent to what was said.
+>
+> **Verify citations programmatically.** After generation, check that each cited source was actually in the retrieved set, and that the claim's key terms or figures appear in that source's text. It's cheap string work, it catches a failure users cannot detect, and an unverified citation is decoration — it *creates* trust without earning it, which is worse than no citation at all.
 
 ---
 
@@ -92,7 +96,8 @@ This completes the core RAG pipeline. The following modules will explore how to 
 
 *   The final generation step requires assembling a master prompt that includes clear rules, the user's query, and the context retrieved from your knowledge base.
 *   The most important rule is to **forbid the model from using outside knowledge** and to give it an "escape hatch" to say "I don't know."
-*   Including source metadata alongside each context chunk is essential for enabling reliable citations in the final answer.
+*   Including source metadata alongside each chunk is what makes citation possible at all.
+*   **Verify citations programmatically.** The model attributes because you asked it to, not because it checked. An unverified citation creates trust without earning it.
 
 ### **Hands-On Task: Critique a Generated Answer**
 

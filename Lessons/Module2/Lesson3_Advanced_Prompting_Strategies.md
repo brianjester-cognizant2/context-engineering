@@ -2,154 +2,183 @@
 
 ### Building on What We've Learned
 
-We've covered the anatomy of a prompt and the foundational "shot" techniques. Now we'll explore architectural blueprints: strategies that enable models to perform complex reasoning, self-correct, and deliver data in reliable, machine-readable formats.
+We've covered prompt anatomy and in-context learning. Now we cover the strategies that make models reason reliably and emit data your software can trust — and how both changed once reasoning models and structured outputs became standard.
 
 ### Learning Objectives
 
 By the end of this lesson, you will be able to:
-*   **Use Chain-of-Thought (CoT) prompting** to improve a model's performance on reasoning tasks.
-*   **Design a multi-step prompt** that incorporates a "self-critique" loop for higher-quality results.
-*   **Enforce structured output** like JSON for reliable integration with other software.
-*   **Combine** these strategies to solve a complex problem.
+*   **Apply** Chain-of-Thought, and explain when native reasoning has made it unnecessary.
+*   **Design** a generate → critique → revise loop, and identify its central weakness.
+*   **Enforce** structured output with a schema rather than an instruction.
+*   **Decompose** a complex task into a chain of reliable steps.
 
 ---
 
-### **1. Chain-of-Thought (CoT) Prompting: "Show Your Work"**
+### **1. Chain-of-Thought: "Show Your Work"**
 
-**Chain-of-Thought (CoT)** is a technique that dramatically improves performance on complex reasoning tasks (e.g., math problems, logic puzzles).
+**Chain-of-Thought (CoT)** asks the model to lay out its reasoning before the answer. Externalizing the steps makes the model less likely to make a leap, and makes the output debuggable.
 
-The core idea is simple: instead of asking for just the final answer, you instruct the model to **"think step by step"** and lay out its reasoning *before* giving the answer. By externalizing the reasoning process, the model is less likely to make logical leaps or calculation errors.
-
-**Standard Prompt (Prone to Failure)**
-If you ask a model to solve `(5 + (3 * 4) - 2)`, it might just spit out an answer, which could be wrong.
-
-**Chain-of-Thought Prompt (More Robust)**
-Here, we explicitly ask it to show its work.
-
-**Code Example:**
 ```python
-problem = "John has 5 apples. He buys 3 more boxes, and each box contains 4 apples. He then gives away 2 apples. How many apples does John have left?"
+problem = ("John has 5 apples. He buys 3 boxes with 4 apples each. "
+           "He gives away 2. How many does he have?")
 
-# We add the simple but powerful instruction to "think step by step."
-prompt = f"""
-{problem}
+prompt = f"""{problem}
 
-First, think step by step and show your reasoning. Then, provide the final answer on a new line.
+Think step by step, then give the final answer on its own line prefixed with 'ANSWER:'.
 """
 
-# Expected AI Response (with CoT):
 # Step 1: John starts with 5 apples.
-# Step 2: He buys 3 boxes of 4 apples each, which is 3 * 4 = 12 new apples.
-# Step 3: His total is now 5 + 12 = 17 apples.
-# Step 4: He gives away 2, so 17 - 2 = 15 apples.
-#
-# Final Answer: 15
+# Step 2: 3 boxes × 4 apples = 12 apples.
+# Step 3: 5 + 12 = 17.
+# Step 4: 17 − 2 = 15.
+# ANSWER: 15
 ```
-By forcing the model to break the problem down, we make the result more reliable and the process more transparent and debuggable.
+
+Note the `ANSWER:` prefix — CoT produces reasoning you have to *parse past*. Always specify a delimiter so your code can extract the answer without regexing prose.
+
+**What changed: native reasoning.**
+Frontier models now do this internally. Given a reasoning budget, they produce extended structured reasoning before responding — trained for the purpose rather than coaxed by a phrase.
+
+This changes the advice:
+
+| Situation | What to do |
+| :--- | :--- |
+| Reasoning model, hard problem | **Don't add "think step by step."** Allocate reasoning budget instead. Explicit CoT instructions can constrain a model that reasons better on its own. |
+| Reasoning model, simple task | Keep the reasoning budget low or off. You pay for reasoning tokens. |
+| Small or fast model | **CoT still helps a lot.** This is where the classic technique earns its keep. |
+| You need the reasoning *visible* to users | Ask for it explicitly, whatever the model — internal reasoning isn't always exposed, and when it is it's not written for an audience. |
+
+> **The durable principle underneath:** hard problems need computation before commitment. Whether that computation is prompted or native is an implementation detail that will keep changing.
 
 ---
 
-### **2. Self-Critique Loops: "Check Your Homework"**
+### **2. Self-Critique Loops — And Their Limit**
 
-This is an advanced application of CoT where the model is tasked with not just solving a problem, but critiquing its own solution and then improving it. This is incredibly powerful for qualitative tasks like writing, code generation, or complex planning.
+A powerful pattern for qualitative work: generate, critique, revise.
 
-The process is a multi-step prompt chain:
-1.  **Initial Draft:** Generate a first version.
-2.  **Critique:** Prompt the model again, asking it to act as a critic and find flaws in its *own* previous output.
-3.  **Final Version:** Prompt it a final time, asking it to generate a new, improved version based on its own critique.
-
-**Example: Improving a piece of writing**
 ```python
+# Step 1 — draft
 first_draft = "Our system is good. Users like it. We should invest more."
 
-# --- STEP 2: The Critique Prompt ---
-critique_prompt = f"""
-You are a world-class writing critic. Find weaknesses in the following text. 
-Focus on vague language and lack of specific evidence.
+# Step 2 — critique (fresh call, critic persona)
+critique_prompt = f"""You are a demanding editor. Identify specific weaknesses in
+the text below. Focus on vague language and unsupported claims. List each weakness
+as a bullet with a concrete suggested fix.
 
-# Text to Critique:
+<text>
 {first_draft}
+</text>
 """
-# --- The model critiques itself, pointing out "good" is vague, etc. ---
 
-# --- STEP 3: The Final Polish Prompt ---
-final_prompt = f"""
-You are a senior business writer. Rewrite the 'Original Text' based on the 'Critique'.
-Make the language more active, specific, and impactful.
+# Step 3 — revise
+final_prompt = f"""Rewrite the original text, addressing every point in the critique.
 
-# Original Text:
-{first_draft}
-
-# Critique:
-{critique_from_step_2}
+<original>{first_draft}</original>
+<critique>{critique_from_step_2}</critique>
 """
 ```
-This process yields much higher quality output because it forces the model to iterate and refine its work.
+
+This genuinely improves output on writing, planning, and design tasks. **But there's a ceiling you need to know about:**
+
+> A model critiquing its own work shares its own blind spots. If it didn't know a fact was wrong when it wrote it, it won't know when it reviews it. Self-critique reliably improves **style, structure, and completeness against stated criteria**. It does not reliably catch **factual errors or logical mistakes** the model was already confident about.
+
+Three things strengthen it, in ascending order of effectiveness:
+
+1.  **Give the critic a rubric**, not a vibe. "Find weaknesses" produces generic feedback; "check each claim for a supporting citation, flag any sentence over 30 words, verify every number appears in the source data" produces actionable feedback.
+2.  **Use a fresh context.** Don't append the critique to the drafting conversation — a model looking at its own reasoning trace tends to defend it. A clean call with just the text and the rubric is a genuinely different reviewer.
+3.  **Bring in an external signal.** A test suite, a schema validator, a linter, a retrieval check against source documents. **This is the only tier that catches the errors self-critique structurally can't** — and it's the bridge to verification in Module 8, Lesson 2.
 
 ---
 
-### **3. Enforcing Structured Output (e.g., JSON)**
+### **3. Structured Output: Use a Schema, Not a Request**
 
-For application development, you often need the model's output to be in a structured format like JSON so your program can parse it reliably.
+For application code you need parseable output. There is a hierarchy of reliability here, and most teams are one step below where they should be:
 
-> **Pro-Tip: Use a Dedicated JSON Mode**
-> Simply *asking* for JSON is unreliable. The best practice is to use a model or API feature that **guarantees** the output will be valid JSON. Many modern APIs (like OpenAI's) now have a "JSON Mode" for this exact purpose.
+| Approach | Reliability | Notes |
+| :--- | :--- | :--- |
+| Asking nicely for JSON in the prompt | Low | Works until the model adds ```` ```json ```` fences, a preamble, or a trailing comment |
+| Few-shot examples of JSON | Medium | Better, but still probabilistic — and costs tokens on every call |
+| **A schema the API enforces** | **High** | The output is *constrained* to be valid, not encouraged |
 
-**Code Example: Using OpenAI's JSON Mode**
+**Use the schema.** Modern APIs enforce a JSON Schema (via structured-output parameters, or by defining the output shape as a tool the model must call). This is a categorical difference, not an incremental one: you move from "usually parses" to "parses."
+
 ```python
-import json
-# (openai client setup)
+import anthropic
+client = anthropic.Anthropic()
 
-text_to_analyze = "The new phone has a great camera and the battery lasts all day, but the screen scratches too easily."
+review_schema = {
+    "name": "record_review_analysis",
+    "description": "Record the extracted pros and cons of a product review.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "pros":      {"type": "array", "items": {"type": "string"}},
+            "cons":      {"type": "array", "items": {"type": "string"}},
+            "sentiment": {"type": "string", "enum": ["positive", "negative", "mixed"]},
+        },
+        "required": ["pros", "cons", "sentiment"],
+    },
+}
 
-prompt = f"""
-Analyze the following product review and extract the pros and cons.
-Provide the output as a JSON object with two keys: "pros" and "cons".
-# Review: {text_to_analyze}
-"""
-
-response = client.chat.completions.create(
-  model="gpt-4-turbo-preview",
-  # This is the key part for enabling guaranteed JSON output
-  response_format={ "type": "json_object" },
-  messages=[
-    {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-    {"role": "user", "content": prompt}
-  ]
+response = client.messages.create(
+    model="claude-sonnet-5",
+    max_tokens=1024,
+    tools=[review_schema],
+    tool_choice={"type": "tool", "name": "record_review_analysis"},   # force it
+    messages=[{"role": "user", "content": f"Analyze this review: {text}"}],
 )
-# This is now guaranteed to be a parsable JSON string
-output = json.loads(response.choices[0].message.content)
+
+analysis = response.content[0].input        # already a dict, guaranteed to fit the schema
 ```
+
+**Two design notes that matter more than the syntax:**
+
+*   **The schema is prompt surface.** Field names and descriptions are read by the model. `{"sentiment": {"description": "overall sentiment, weighing the reviewer's conclusion more heavily than individual complaints"}}` steers behavior. Treat schema descriptions as instructions, because they are.
+*   **A schema constrains shape, not truth.** `sentiment: "positive"` is guaranteed to be one of your three enum values. It is not guaranteed to be *correct*. Validation is not verification.
+
+---
+
+### **4. Decomposition: The Meta-Strategy**
+
+The most reliable way to make a hard task work is usually to stop asking one call to do it.
+
+**One call, five jobs** — research, analyze, decide, format, verify — fails in a way that's hard to debug: you get a bad answer with no visibility into which job went wrong.
+
+**Five calls, one job each** gives you something better than reliability — it gives you **localizability**. Each step can be tested, cached, retried, routed to an appropriately-sized model, and inspected in a trace.
+
+```
+[cheap model]  extract entities from document
+       ↓
+[cheap model]  classify each entity
+       ↓
+[frontier]     reason about the classified set
+       ↓
+[schema]       emit structured result
+       ↓
+[code]         validate against business rules
+```
+
+The cost is latency and orchestration complexity. The benefit is that when it breaks, you know where. This pattern is the direct ancestor of the loop and pipeline architectures in Module 8.
 
 ---
 
 ### **Key Takeaways**
 
-*   **Chain of Thought (CoT):** Force the model to "show its work" on reasoning tasks to increase accuracy.
-*   **Self-Critique:** Use a multi-step prompt to have the model generate, critique, and then refine its own work for higher quality.
-*   **JSON Mode:** When you need structured data, use a model's built-in JSON mode for guaranteed reliability.
+*   **CoT** still helps small and fast models. For reasoning models, allocate a **reasoning budget** rather than instructing "think step by step" — and always specify a delimiter so your code can find the answer.
+*   **Self-critique** improves style, structure, and completeness. It does **not** reliably catch factual errors the model was confident about — for that you need an external signal.
+*   Use a **schema the API enforces**, not a polite request for JSON. Schema field descriptions are prompt surface; schema validity is not truth.
+*   **Decompose.** One job per call buys you localizability — the ability to know *which* step failed.
 
 ### **Hands-On Task: The Multi-Step Meal Planner**
 
-**Scenario:**
-You are building an AI Meal Planner. The user's request is complex: "I need a healthy, low-carb meal plan for 3 days. I don't eat fish."
+**Scenario.** *"I need a healthy, low-carb meal plan for 3 days. I don't eat fish."*
 
-**Your Task:**
-Design a series of prompts to solve this problem by combining CoT, self-critique, and structured output.
+**Part A — Build the chain.**
 
-1.  **Prompt 1: Initial Brainstorm (Chain of Thought):**
-    *   Write a prompt that asks the model to "think step by step" to create an initial meal plan. It should consider all the user's constraints (healthy, low-carb, 3 days, no fish). Ask it to output its thoughts and then the plan.
+1.  **Generate.** Write a prompt producing an initial 3-day plan against all the constraints. Say whether you'd use explicit CoT here and justify it by model type.
+2.  **Critique.** Write a critic prompt with an explicit **rubric**, not "find problems." At minimum it should check: genuine low-carb status (hidden carbs — potatoes, rice, sauces), variety (not chicken six times), completeness (3 meals × 3 days), and the no-fish constraint.
+3.  **Revise + structure.** Produce the final plan as a **schema-enforced** object: keys `Day1`–`Day3`, each with `Breakfast`, `Lunch`, `Dinner`, and each meal carrying `name`, `main_protein`, and `est_carbs_g`.
 
-2.  **Prompt 2: The Critique:**
-    *   Write a second prompt that takes the output from Prompt 1.
-    *   Its persona should be a "critical nutritionist." It should check for:
-        *   True low-carb status (are there hidden carbs like potatoes or rice?).
-        *   Variety (is the user eating chicken for every meal?).
-        *   Completeness (are there 3 meals for all 3 days?).
+**Part B — Find what self-critique can't catch.** Your critic passes a plan containing a meal listed at 8g carbs that actually contains about 40g. Explain why the critic missed it, and design the **external check** that catches it. What does that check need access to?
 
-3.  **Prompt 3: The Final, Structured Output:**
-    *   Write a final prompt that takes the original plan (from #1) and the critique (from #2).
-    *   Instruct it to generate a final, improved meal plan.
-    *   This time, it MUST output the plan as a single JSON object. The JSON should have keys for "Day1", "Day2", and "Day3", where each key's value is another object with keys for "Breakfast", "Lunch", and "Dinner".
-
-This task simulates a real-world AI engineering workflow where you chain prompts together to produce a final result that is more thoughtful, accurate, and reliable than any single prompt could achieve. 
+**Part C — Route it.** Assign each of your three steps a model tier (cheap / frontier) and justify each choice in one line. Which step would you never route down, and why?

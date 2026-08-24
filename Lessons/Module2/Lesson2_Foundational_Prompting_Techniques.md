@@ -2,125 +2,129 @@
 
 ### Building on What We've Learned
 
-In the last lesson, we learned how to construct an advanced prompt with a persona, rules, and constraints. Now, we'll explore the core techniques for *showing* the model what we want, not just telling it. These techniques control the amount of "in-context learning" you provide to the model.
+Last lesson we built a prompt that *tells* the model what to do. This lesson is about *showing* it — the in-context learning techniques that remain the most reliable way to control output without touching model weights.
 
 ### Learning Objectives
 
 By the end of this lesson, you will be able to:
-*   **Define** and **differentiate** between Zero-Shot, One-Shot, and Few-Shot prompting.
-*   **Choose** the appropriate technique based on task complexity, desired output format, and cost.
-*   **Structure** a Few-Shot prompt to teach a model a nuanced or complex task.
-*   **Select** high-quality examples to maximize the effectiveness of a Few-Shot prompt.
+*   **Differentiate** zero-shot, one-shot, and few-shot prompting.
+*   **Choose** the right technique for a task's complexity, format requirements, and budget.
+*   **Select** examples that teach the boundary rather than the average case.
+*   **Recognize** when examples hurt rather than help.
 
 ---
 
-### **1. Zero-Shot Prompting: The Basic Request**
+### **1. Zero-Shot: The Basic Request**
 
-**Zero-shot prompting** is when you ask the model to perform a task without giving it *any* prior examples of how to do it. You are relying entirely on the model's pre-existing knowledge.
+**Zero-shot** means asking for a task with no examples, relying entirely on what the model already knows.
 
-*   **When to Use:** Simple, common tasks like summarization, general questions, or simple classification.
-*   **Advantage:** Simple, fast, and uses the fewest tokens.
-*   **Disadvantage:** Less reliable for complex tasks. The output format can be inconsistent.
+*   **Use for:** common, well-defined tasks — summarization, translation, simple classification.
+*   **Pro:** simplest, cheapest, fewest tokens.
+*   **Con:** output *format* is inconsistent even when the output *content* is right.
 
-**Example: Zero-Shot Sentiment Analysis**
 ```python
 system_prompt = "Classify the user's text as 'Positive', 'Negative', or 'Neutral'."
 user_text = "The new UI is a bit clunky, but I love the new features."
-# The model "knows" what sentiment analysis is, but its output format isn't guaranteed.
-# It might say "The sentiment is Positive." or just "Positive".
+# The model knows what sentiment analysis is. What it doesn't know is whether you
+# want "Positive", "The sentiment is positive.", or "Mixed — leaning positive."
 ```
+
+That last comment is the real failure mode. Zero-shot rarely fails at *understanding*; it fails at *conforming*.
 
 ---
 
-### **2. One-Shot Prompting: A Single, Perfect Example**
+### **2. One-Shot: A Single Perfect Example**
 
-**One-shot prompting** is where you provide a *single* example of the task. This one example helps clarify the instruction and, more importantly, demonstrates the **exact output format** you expect.
-
-*   **When to Use:** When you need a specific, consistent output format, or when the task is slightly ambiguous.
-*   **Advantage:** Massively increases the reliability of the output format with minimal token cost.
-
-**Example: One-Shot for Structured Output**
-To improve our sentiment bot, we provide one perfect input/output pair. This shows the model *exactly* how to behave.
+**One-shot** provides exactly one demonstration. Its main job is not to teach the task — it's to pin down the output format.
 
 ```python
-# In our message history, we create a single, perfect example.
 messages = [
-    {"role": "system", "content": "Classify the user's text as 'Positive', 'Negative', or 'Neutral'. Respond with only a single word."},
-    # --- The "One-Shot" Example ---
-    {"role": "user", "content": "I absolutely adore the new design!"},
+    # --- the one-shot example, as a prior exchange ---
+    {"role": "user",      "content": "I absolutely adore the new design!"},
     {"role": "assistant", "content": "Positive"},
-    # --- The New Task ---
-    {"role": "user", "content": "The new UI is a bit clunky, but I love the new features."}
+    # --- the real task ---
+    {"role": "user",      "content": "The new UI is a bit clunky, but I love the new features."},
 ]
-# Because of the example, the model is now highly likely to respond with just a single word.
 ```
+
+One well-chosen example buys you most of the format reliability that few-shot provides, for a fraction of the tokens. **When in doubt, start here rather than at zero.**
 
 ---
 
-### **3. Few-Shot Prompting: Guidance Through Repetition**
+### **3. Few-Shot: Teaching Nuance**
 
-**Few-shot prompting** is the most powerful of the three. You provide *multiple* (typically 2-5) examples. This allows the model to learn patterns, understand nuance, and handle complex or creative tasks with high fidelity.
-
-*   **When to Use:** For complex tasks, style imitation, or to teach the model how to handle specific edge cases.
-*   **Advantage:** The most reliable way to control output without fine-tuning the model itself.
-*   **Disadvantage:** Uses the most tokens, which increases cost and latency.
-
-**Example: Few-Shot for Nuanced Classification**
-Let's create a bot to classify support tickets. The categories are nuanced. A zero-shot model might confuse "Your app is slow" (Feedback) with a technical issue. Few-shot clarifies this.
+**Few-shot** provides several examples (typically 2–5). It's how you teach judgment calls, edge cases, and house style — anything where the rule is easier to demonstrate than to state.
 
 ```python
-# We provide a series of examples to teach the model the nuances.
 examples = [
     {"role": "user", "content": "I can't log in."},
     {"role": "assistant", "content": "Technical"},
+
     {"role": "user", "content": "How do I upgrade my plan?"},
     {"role": "assistant", "content": "Billing"},
-    {"role": "user", "content": "Your app is so slow and unresponsive sometimes."},
-    {"role": "assistant", "content": "Feedback"} # This example is key!
-]
 
-# The final prompt includes the system message, the examples, and the new text to classify.
-# The model learns from the pattern and correctly classifies the new text.
+    # The important one: superficially technical, actually feedback.
+    {"role": "user", "content": "Your app is so slow and unresponsive sometimes."},
+    {"role": "assistant", "content": "Feedback"},
+]
 ```
+
+That third example is doing all the work. Without it, a zero-shot model classifies "your app is slow" as Technical every time — reasonably, since it mentions performance. The example is faster and more reliable than any sentence you could write explaining the distinction.
 
 ---
 
-### **4. How to Choose Good Examples**
+### **4. Choosing Good Examples**
 
-The quality of your few-shot examples is critical.
+Example quality dominates example quantity. The single most useful reframing:
 
-*   **Quality over Quantity:** Three high-quality, diverse examples are better than ten repetitive ones.
-*   **Cover the Edges:** Choose examples that represent the full range of expected inputs, especially the tricky edge cases that might confuse a zero-shot model.
-*   **Avoid Bias:** If all your "doctor" examples use "he/him" pronouns, the model will likely replicate that bias. Ensure your examples are balanced and reflect your desired output.
-*   **Consistent Formatting:** The format of your examples should be identical. The model learns the structure as much as the content.
+> **Don't demonstrate the average case. Demonstrate the boundary.**
 
-> **Pro-Tip: Start with Zero, Add as Needed**
-> Always start with a zero-shot prompt. If it isn't reliable enough, move to one-shot. If the task is too nuanced, move to few-shot. This iterative process helps you find the most token-efficient solution for your problem.
+The model already handles the obvious cases. Your examples should spend their token budget on the cases where it would otherwise get it wrong.
+
+*   **Quality over quantity.** Three diverse, well-chosen examples beat ten near-duplicates — and cost a third as much.
+*   **Cover the edges.** Include the case you got wrong in production last week. That's your best example, and it's free.
+*   **Watch for bias.** If every "engineer" example uses he/him, the model will replicate that. Examples teach patterns you didn't intend as reliably as ones you did.
+*   **Be perfectly consistent in format.** The model learns your structure at least as strongly as your content. One example with a trailing period teaches "sometimes a trailing period."
+*   **Order matters at the margins.** With a strong tail example, put it last — recency helps. Don't over-tune this; if output depends heavily on example ordering, your examples are too weak.
+
+> **Pro-Tip: Start at zero, escalate only as needed**
+> Zero-shot → one-shot → few-shot. Each step costs tokens on *every single call*, forever. Escalate when a measurable failure justifies it — and this is exactly the kind of change your eval set (Module 6) exists to adjudicate.
+
+---
+
+### **5. When Examples Hurt**
+
+Few-shot is not free upside, and three cases are worth knowing.
+
+**A. With reasoning models, on reasoning tasks.**
+Models that produce extended internal reasoning before answering often perform *worse* with elaborate few-shot examples on hard reasoning problems — the examples pull them toward imitating a demonstrated path rather than working the problem. For these models on these tasks, prefer a clear statement of the task and the output format, and let the model reason. Keep few-shot for **format and style**, where it still helps everywhere.
+
+**B. When the examples become the ceiling.**
+Show three examples of two-sentence answers and you will get two-sentence answers — including when a question genuinely needs five. Examples don't just guide, they **bound**. If your outputs feel oddly uniform, look at your examples before you look at the model.
+
+**C. When a schema would do it better.**
+If your entire reason for using few-shot is to enforce a JSON shape, use a structured-output feature instead (Lesson 3). A schema *guarantees* what examples merely encourage — and it costs no tokens per call.
 
 ---
 
 ### **Key Takeaways**
 
-*   **Zero-Shot:** Tell the model what to do. Fast and cheap, but less reliable for complex tasks.
-*   **One-Shot:** Show the model *one* perfect example to control the output format.
-*   **Few-Shot:** Show the model *multiple* diverse examples to teach it a nuanced task.
-*   Always start with the simplest technique and add complexity only when necessary.
+*   **Zero-shot:** cheapest; fails on format consistency more than on comprehension.
+*   **One-shot:** most format reliability per token. A good default when zero-shot is inconsistent.
+*   **Few-shot:** teaches nuance and edge cases that are easier to show than to state.
+*   **Demonstrate the boundary, not the average.** Your best example is last month's production failure.
+*   Examples can **hurt**: on reasoning tasks with reasoning models, by capping output variety, and where a schema would be strictly better.
 
 ### **Hands-On Task: From Zero to Few-Shot**
 
-**Scenario:**
-You want to create a "Code Explainer" bot. Given a block of code, it should explain what the code does in a single, simple English sentence.
+**Scenario.** You're building a "Code Explainer" that describes a block of code in one plain-English sentence.
 
-**Your Task:**
+**Part A — Escalate deliberately.**
 
-1.  **Write a Zero-Shot Prompt:** Write a system prompt and a user message containing a simple function (e.g., `def add(a, b): return a + b`). How does the model respond? Is the format consistent?
+1.  **Zero-shot.** Write a system prompt and pass it `def add(a, b): return a + b`. Note the exact format you get back. Run it three times — is it identical each time?
+2.  **One-shot.** Add one perfect example. Does the format stabilize? What *specifically* changed?
+3.  **Few-shot.** Add two or three more, ranging from simple to complex (e.g. a list comprehension, a decorator, a small class). Test on something none of them resemble.
 
-2.  **Improve it with One-Shot:** Now, modify your prompt to be one-shot. Create a single, perfect example of a function and its one-sentence explanation. Use this to guide the model to produce a more reliable output for the same `add` function.
+**Part B — Break it deliberately.** Feed your few-shot prompt a 40-line class with three methods and a nontrivial invariant. Does it still produce one sentence? Is that sentence useful, or did your examples cap the output below what the input needed?
 
-3.  **Perfect it with Few-Shot:** The `add` function is easy. Let's try something more complex, like a list comprehension or a simple class.
-    *   Create 2-3 new examples that show how to explain more complex code.
-    *   One example should be simple (like `add`).
-    *   The other should be more advanced (e.g., `squares = [x*x for x in range(10)]`).
-    *   Use this new few-shot prompt to ask for an explanation of a new, complex piece of code.
-
-This exercise will walk you through the iterative process of prompt development, from a basic request to a sophisticated, example-driven instruction. 
+**Part C — Design the boundary example.** Your explainer is now in production and consistently mishandles code with side effects: given a function that both computes *and* writes to a database, it describes only the computation. Write the single few-shot example that fixes this, and explain in one line what makes it the *right* example rather than just *an* example.

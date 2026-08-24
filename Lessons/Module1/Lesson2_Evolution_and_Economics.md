@@ -2,111 +2,166 @@
 
 ### Building on What We've Learned
 
-In the last lesson, we defined "context" and saw how critical it is for performance. Now, we'll explore *how* that context is managed in a real application, the limitations of a model's internal knowledge, and the economic realities that every context engineer must face.
+We've defined context and seen that it's the main lever on model behavior. Now we look at how context is managed in a real application, why models can't just know things, and the economics that constrain every design decision you'll make.
+
+The economics section matters more than it used to. When a request was one model call, cost was an afterthought. When a request is an agent running fifty turns, cost is an architectural constraint.
 
 ### Learning Objectives
 
 By the end of this lesson, you will be able to:
-*   **Describe** the difference between a stateless and stateful (context window) interaction.
-*   **Explain** what a "knowledge cutoff" is and why it necessitates techniques like RAG.
-*   **Analyze** the trade-offs between context size, cost, latency, and performance.
-*   **Calculate** the estimated token count and cost for a sample API call.
+*   **Describe** the progression from stateless prompts to agent loops.
+*   **Explain** what a knowledge cutoff is and why it makes retrieval necessary.
+*   **Analyze** the trade-offs between context size, cost, latency, and quality.
+*   **Calculate** the cost of an agent run, including the effect of prompt caching.
 
 ---
 
-### **1. From Stateless Prompts to Dynamic Context Windows**
+### **1. From Stateless Prompts to Agent Loops**
 
-The way we provide context to AI models has evolved rapidly.
-
-**Stage 1: The Stateless Prompt**
-Initially, interactions were **stateless**. You would send a single, self-contained prompt and get a response. The model had no memory of past interactions. This is like having a conversation with someone who has severe short-term memory loss.
+**Stage 1: The stateless prompt.**
+Early interactions were stateless. One self-contained prompt in, one response out, no memory.
 
 ```
 > ask_ai "Translate 'hello' to French."
 "Bonjour"
 
 > ask_ai "What language was that?"
-"I'm sorry, I don't have the context of our previous conversation. Please provide the text you are referring to."
+"I'm sorry, I don't have the context of our previous conversation."
 ```
-This is computationally cheap and simple, but the utility is very limited.
+Cheap and simple; barely useful.
 
-**Stage 2: The Dynamic Context Window**
-Modern conversational AI uses a **context window**. This is a short-term memory buffer that includes the recent back-and-forth of the conversation. When you send a new message, the application also sends the recent chat history, allowing the model to "remember" what you were talking about.
+**Stage 2: The conversation window.**
+Chat applications work by resending the conversation on every turn. The model doesn't "remember" — your application rebuilds its memory each time.
 
-**Practical Example: How a Chatbot "Remembers"**
-Under the hood, your application is rebuilding the context on every single turn.
-
-*   **User's First Message:** "Who was the first person on the moon?"
-*   **API Call 1:** The application sends just the user's message.
+*   **User:** "Who was the first person on the moon?"
     ```json
     { "messages": [{"role": "user", "content": "Who was the first person on the moon?"}] }
     ```
-*   **AI's Response:** "Neil Armstrong."
-
-*   **User's Second Message:** "What was the name of his spacecraft?"
-*   **API Call 2:** The application sends the *entire conversation history* plus the new message.
+*   **Model:** "Neil Armstrong."
+*   **User:** "What was the name of his spacecraft?"
     ```json
-    {
-      "messages": [
+    { "messages": [
         {"role": "user", "content": "Who was the first person on the moon?"},
         {"role": "assistant", "content": "Neil Armstrong."},
         {"role": "user", "content": "What was the name of his spacecraft?"}
-      ]
-    }
+    ]}
     ```
-The AI could only answer the second question because we provided the history as context. The "context window" is the maximum number of tokens this `messages` array can hold. If the conversation gets too long, the oldest messages must be dropped.
+The model could answer the second question only because we resent the first exchange.
+
+**Stage 3: The agent loop.**
+This is where the economics change shape. An agent doesn't make one call per user request — it makes many, each one carrying the accumulated history *plus* every tool result so far.
+
+```
+Turn 1:  [instructions + tools + query]                            → tool call
+Turn 2:  [instructions + tools + query + result 1]                 → tool call
+Turn 3:  [instructions + tools + query + results 1-2]              → tool call
+...
+Turn 30: [instructions + tools + query + results 1-29]             → answer
+```
+
+Look at the shape of that: **the context grows on every turn, and you pay for the whole thing each time.** A single agent task routinely consumes 50–100× the tokens of a single chat turn. This is not a rounding error, and it's the reason the rest of this course spends so much time on what to *remove* from context.
 
 ---
 
-### **2. Understanding Model Knowledge Cutoffs**
+### **2. Knowledge Cutoffs**
 
-A critical limitation of most LLMs is the **knowledge cutoff**. An LLM's knowledge is not a live connection to the internet; it's a snapshot of the data it was trained on, frozen in time.
+Every model's knowledge is a snapshot of its training data, frozen at a **knowledge cutoff**. Ask about events after that date and it cannot answer from memory — it's a historian who retired on a specific day.
 
-For example, GPT-4's knowledge was largely cut off in late 2023. If you ask it about events after that date, it cannot give you a factual answer from its internal "memory." It's like asking a historian who retired in 2023 about current events.
+Two nuances matter more than the basic fact:
 
-> **Pro-Tip: Never Trust, Always Verify**
-> You should never assume a model knows about a specific event, even if it happened before its knowledge cutoff. Its knowledge is vast, but not perfect. If factual accuracy is important, the only way to guarantee it is to provide the facts yourself through context (this is the core idea of RAG, which we'll cover in Module 3).
+*   **Models are unreliable about their own cutoff.** They will often state a date confidently and incorrectly, because that date is itself just training data.
+*   **Coverage before the cutoff is uneven.** A model may know a well-documented public event thoroughly and know nothing about your company's product that launched the same week. "Before the cutoff" is not the same as "known."
 
-This is the **single biggest reason** why context engineering is so vital. It is the primary method we have to provide the model with up-to-date, proprietary, or domain-specific information.
+> **Pro-Tip: Never trust, always verify**
+> If factual accuracy matters, the only reliable approach is to supply the facts yourself through context. That's the entire premise of retrieval, which we cover in Module 3.
+
+This is the single biggest structural reason context engineering exists: it is how you get up-to-date, proprietary, and domain-specific information into a system that cannot learn it.
 
 ---
 
 ### **3. The Economics of Context**
 
-Engineering the perfect context isn't just about quality; it's a three-way balancing act between cost, speed, and performance. All three are tied to one thing: **tokens**.
+Everything ties back to **tokens**. A token is roughly ¾ of an English word. Models read, process, and bill by the token.
 
-A **token** is a piece of a word. For English text, 100 tokens is roughly 75 words. Models read, process, and are billed based on the number of tokens in the context window.
+**The three costs:**
 
-*   **Token Count & Cost:** API providers charge for both the tokens you send in the prompt (**input tokens**) and the tokens the model generates (**output tokens**). More context = more expensive.
-*   **Token Count & Latency:** The more tokens the model has to process, the longer it takes to generate a response. Speed is a critical part of the user experience.
-*   **Token Count & Performance:** Bigger isn't always better. An overly large context filled with irrelevant "noise" can confuse the model and actually *degrade* performance. This is often called the "lost in the middle" problem.
+*   **Money.** You pay for input tokens and (more expensively) output tokens. More context, higher bill.
+*   **Latency.** More input tokens means more time before the first token comes back. In an agent loop, that latency multiplies by the number of turns.
+*   **Quality.** Bigger is not better. An oversized context padded with irrelevant material measurably degrades accuracy — an effect known as **context rot** (Module 4, Lesson 1).
 
-The goal of a context engineer is to achieve the highest **information density**—the most "signal" per token.
+That third one is the counterintuitive one, and it's what makes this an engineering discipline rather than a budgeting exercise. If more context were merely expensive, you'd just pay. It's also *worse*.
+
+**The goal is information density: the most signal per token.**
+
+---
+
+### **4. Prompt Caching: The Lever That Changes the Math**
+
+Modern APIs let you cache a prefix of your prompt. On a cache hit, those tokens bill at roughly **10% of the normal input rate**; writing to the cache costs a small premium (typically ~1.25×).
+
+For an agent loop this is transformative, because the expensive, unchanging part of your context — system instructions, tool definitions, examples — is identical on all fifty turns.
+
+**But there is one rule that decides whether you get the benefit at all:**
+
+> **A cache prefix is valid only up to the first byte that changed.**
+
+Put a timestamp, a request ID, or a session counter near the top of your prompt and you invalidate everything after it, on every single call. You will pay full price for a context you believe is cached, and the bug is invisible — nothing errors, the bill is just four times higher than your estimate.
+
+**The rule that follows: order your context from most stable to most volatile.**
+
+```
+  stable   →  system instructions
+              tool definitions
+              few-shot examples
+              ──── cache breakpoint ────
+              retrieved documents
+              conversation history
+  volatile →  the current request
+```
+
+Two practical cautions: cache entries **expire** (commonly a few minutes by default, with longer options at a higher write rate), so a loop that fires one call every ten minutes may never hit the cache at all. And below roughly a 60% hit rate, the write premium can make caching cost *more* than not caching. Measure your hit rate; don't assume it.
+
+---
+
+### **5. Model Routing**
+
+One more lever worth naming early, because it's the largest cost reduction available in most systems and it's usually left on the table.
+
+Frontier models are dramatically more expensive than small ones — the spread across the current field is more than an order of magnitude. Most agent systems have steps that don't need frontier reasoning: classifying an intent, extracting fields from a document, deciding whether a retrieved chunk is relevant, summarizing a tool result.
+
+**Route those to a cheap model. Route the hard synthesis to an expensive one.** A well-routed system commonly costs a fraction of a naive one at indistinguishable quality — and the routing logic is usually twenty lines of code.
 
 ---
 
 ### **Key Takeaways**
 
-*   Modern chatbots work by sending the conversation history back to the model with every new turn.
-*   LLMs have a "knowledge cutoff" and do not know about recent events, making real-time context essential for factual applications.
-*   Context is a resource. As an engineer, you must constantly balance the need for information with the cost and latency implications of using more tokens.
+*   Chat works by **resending history** every turn. Agents compound this — context grows each turn and you pay for all of it, every time.
+*   Models have **knowledge cutoffs**, are unreliable about what those cutoffs are, and have uneven coverage even before them.
+*   Context has three costs: **money, latency, and quality**. The quality cost is what makes this engineering rather than budgeting.
+*   **Prompt caching** cuts input costs by up to ~90%, but only if you order context **stable → volatile**. One volatile token near the top destroys the whole prefix.
+*   **Model routing** — cheap models for easy steps — is usually the biggest available cost win.
 
-### **Hands-On Task: The Napkin-Math of Context**
+### **Hands-On Task: The Napkin-Math of an Agent**
 
-Let's do a simple cost estimation. This is a crucial skill for planning any real-world LLM project.
+**Scenario.** You're costing out a customer-support agent.
 
-**Scenario:**
-You are building a customer support bot using a model with the following pricing:
-*   **Input:** $5.00 per 1 million tokens
-*   **Output:** $15.00 per 1 million tokens
+*   **Frontier model:** $5.00 / 1M input tokens, $25.00 / 1M output tokens.
+*   **Cached input reads:** 10% of the input rate. **Cache writes:** 1.25× the input rate.
+*   **Small model:** $0.25 / 1M input, $1.25 / 1M output.
 
-Your bot has a standard RAG pipeline where, for each user query, it retrieves 3 documents of about 500 tokens each. The user's query is about 30 tokens, and the bot's final answer is about 100 tokens.
+Your agent's context per turn:
+*   System instructions + tool definitions: **2,000 tokens** (identical every turn)
+*   Retrieved documents: **1,500 tokens** (fetched once, on turn 1, then carried)
+*   Accumulated history and tool results: **grows by ~400 tokens per turn**
+*   Output: **150 tokens per turn**
+
+A typical conversation runs **8 turns**.
 
 **Your Task:**
 
-1.  **Calculate the total number of INPUT tokens** for a single turn. (Hint: This includes the retrieved documents and the user's query).
-2.  **Calculate the total number of OUTPUT tokens.**
-3.  **Calculate the cost of this single turn.**
-4.  **Calculate the total cost to serve 1,000 users,** if each user has an average of 8 turns in their conversation.
-
-This exercise demonstrates how quickly costs can scale and why techniques we'll learn later—like contextual compression—are so important for building economical AI products. 
+1.  **Cost one conversation with no caching.** Compute the input tokens per turn (remember the history grows), sum across 8 turns, and add output cost.
+2.  **Cost it with caching.** The 2,000-token stable prefix is written once and read on turns 2–8. Recompute.
+3.  **What's the saving,** in dollars and as a percentage? Was it larger or smaller than you expected before calculating?
+4.  **Scale it.** 5,000 conversations per day. What's the monthly difference between the cached and uncached designs?
+5.  **Route it.** Three of the eight turns are simple classification steps that a small model handles fine. Recompute the cached total with those three routed to the small model. Which lever — caching or routing — mattered more here, and would that ranking hold if the conversation ran 40 turns instead of 8?
+6.  **Find the bug.** A colleague adds `"Current time: {timestamp}"` as the first line of the system instructions, for freshness. What happens to your cached cost, and how would you notice? Where should that line go instead?

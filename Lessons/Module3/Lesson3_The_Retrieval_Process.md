@@ -25,9 +25,12 @@ Think of it like a magical library where books aren't organized alphabetically, 
 
 This process is incredibly fast, allowing you to search through millions of documents in milliseconds.
 
-**Popular Vector Databases:**
-*   **Managed Cloud Services:** Pinecone, Weaviate, Zilliz Cloud (Easy to set up and scale).
-*   **Local / Self-Hosted:** ChromaDB, FAISS (Great for development and smaller projects).
+**Popular Vector Stores:**
+*   **Managed:** Pinecone, Weaviate, Zilliz/Milvus, Turbopuffer.
+*   **Local / self-hosted:** ChromaDB, Qdrant, LanceDB, FAISS.
+*   **Extensions to a database you already run:** `pgvector` for Postgres, or the vector features in your existing search engine (OpenSearch, Elasticsearch).
+
+> **Pro-Tip:** if you already run Postgres or a search cluster, start there. A dedicated vector database is a genuine operational addition — another service to run, secure, back up, and keep in sync with your source of truth. Reach for one when scale or feature requirements justify it, not by default.
 
 **Code Example: A Simple RAG Flow with ChromaDB**
 This example shows the full, simplified pipeline: Indexing and then Retrieval.
@@ -83,32 +86,51 @@ It first fetches a large set of relevant documents, then re-ranks them, penalizi
 
 ### **3. Hybrid Search: The Best of Both Worlds**
 
-Vector search is powerful, but it can fail when a query depends on a specific, non-semantic keyword, like a product ID (`SKU-12345`) or an error code (`ERR_CONN_RESET`).
+Vector search is powerful, but it fails on queries that hinge on a specific, non-semantic token — a product ID (`SKU-12345`), an error code (`ERR_CONN_RESET`), a person's surname, an unusual acronym. Embeddings represent *meaning*, and a SKU has no meaning to represent.
 
-**Hybrid Search** combines two techniques:
-*   **Vector Search (Semantic):** Finds documents that are conceptually similar.
-*   **Keyword Search (Literal):** Finds documents that contain the exact search terms.
+**Hybrid search** runs both and merges:
+*   **Vector search (semantic):** finds conceptually similar passages.
+*   **Keyword search (lexical, typically BM25):** finds exact term matches.
 
-The database then merges these two result sets to get the best of both worlds. This approach is more robust, capturing both the "gist" of a query and the specific, literal terms within it. Many modern vector databases offer hybrid search as a built-in feature.
+The standard way to merge two ranked lists is **Reciprocal Rank Fusion (RRF)** — score each document by `1 / (k + rank)` in each list and sum. It needs no score normalization between the two systems, which is what makes it the practical default:
+
+```python
+def reciprocal_rank_fusion(*ranked_lists, k=60):
+    scores = {}
+    for lst in ranked_lists:
+        for rank, doc_id in enumerate(lst, start=1):
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank)
+    return sorted(scores, key=scores.get, reverse=True)
+```
+
+> **If you take one default from this lesson, take this one: hybrid search over pure vector search.** It is a small amount of work, it is supported natively by most modern vector databases, and it removes an entire class of embarrassing failure — the one where a user pastes an exact error code and gets back thematically related prose that doesn't mention it.
+
+Hybrid search is also the strongest argument against the "just embed everything" instinct: **the most reliable retrieval systems combine signals**, and the more different those signals are from each other, the better the combination performs. Contextual retrieval (Lesson 2), hybrid search (here), and re-ranking (Module 4, Lesson 3) stack, because each fixes something the others can't.
 
 ---
 
 ### **Key Takeaways**
 
-*   A **vector database** stores and searches embeddings based on "semantic proximity" or meaning.
-*   The retrieval process involves converting the user's query into a vector and using it to find the most similar document vectors.
-*   **MMR** is a useful technique for getting a more diverse set of results and avoiding redundancy.
-*   **Hybrid search** combines vector and keyword search for the most robust and comprehensive results.
+*   A **vector store** searches embeddings by semantic proximity. If you already run Postgres or a search cluster, start there rather than adding a service.
+*   Retrieval embeds the query with the **same model** used for indexing, then finds nearby vectors.
+*   **MMR** trades a little relevance for diversity, avoiding five near-identical results.
+*   **Hybrid search (vector + BM25, fused with RRF) should be your default.** Pure vector search fails on exact identifiers, and that failure is highly visible to users.
+*   The best retrieval systems **stack independent signals**: contextual retrieval, hybrid search, and re-ranking each fix something the others cannot.
 
 ### **Hands-On Task: Choose Your Retrieval Strategy**
 
 For each of the following scenarios, decide which retrieval strategy would be most appropriate: **Standard Vector Search**, **MMR**, or **Hybrid Search**. Explain your reasoning.
 
 1.  **Scenario A: "What is context engineering?"**
-    *   You are querying a knowledge base built from the lessons in this course. You want to provide a comprehensive, non-repetitive definition to the user.
+    *   Querying a knowledge base built from this course's lessons. You want a comprehensive, non-repetitive answer.
 
 2.  **Scenario B: "My TV is showing error code G-451. What do I do?"**
-    *   You are querying a large knowledge base of technical support manuals. "G-451" has no real semantic meaning, but it's a critical term.
+    *   Querying a large corpus of technical support manuals. "G-451" carries no semantic meaning but is the critical term.
 
 3.  **Scenario C: "How do I add a user to my account?"**
-    *   You are querying a set of concise, step-by-step "how-to" articles. The answer is likely contained entirely within a single, specific document. There's little risk of redundancy. 
+    *   Querying concise step-by-step how-to articles. The answer is almost certainly contained in one specific document; redundancy is not a risk.
+
+4.  **Scenario D: "Show me all invoices over $10,000 from Q2 that are still unpaid."**
+    *   Querying a database of 400,000 invoice records with structured fields for amount, date, and status.
+
+5.  **Now defend the default.** For each of A–C, would hybrid search have been an acceptable answer even where it wasn't your first choice? Name the one scenario where a *pure* vector search would produce a materially worse result, and explain the mechanism. 
